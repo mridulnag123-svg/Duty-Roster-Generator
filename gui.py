@@ -3,6 +3,7 @@ import sys
 import subprocess
 import threading
 import shutil
+import base64
 from pathlib import Path
 from datetime import datetime
 
@@ -65,10 +66,17 @@ RKM_LOGO_FILE = (
     / "asstes"
     / "logo.png"
 )
-RKM_LOGO_URL = (
-    "file:///"
-    + str(RKM_LOGO_FILE).replace("\\", "/")
-)
+
+
+def get_logo_data_uri():
+    if not RKM_LOGO_FILE.exists():
+        return ""
+    try:
+        with open(RKM_LOGO_FILE, "rb") as img_file:
+            encoded = base64.b64encode(img_file.read()).decode("utf-8")
+        return f"data:image/png;base64,{encoded}"
+    except Exception:
+        return ""
 
 
 # ============================================================
@@ -4477,11 +4485,13 @@ with gr.Blocks(
     # HERO
     # ========================================================
 
+    logo_data_uri = get_logo_data_uri()
+
     gr.HTML(
         f"""
         <div class="hero">
             <div class="hero-inner">
-                <img class="hero-logo" src="{RKM_LOGO_URL}" alt="RKM logo" />
+                {f'<img class="hero-logo" src="{logo_data_uri}" alt="RKM logo" />' if logo_data_uri else '<div class="hero-logo-placeholder">🛡️</div>'}
                 <div class="hero-text">
                     <h1>RKM Duty Roster Generator</h1>
                     <p>
