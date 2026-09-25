@@ -3,7 +3,6 @@ import sys
 import subprocess
 import threading
 import shutil
-import base64
 from pathlib import Path
 from datetime import datetime
 
@@ -58,54 +57,17 @@ OUTPUT_FILE = (
     / "duty_roster.xlsx"
 )
 
-RKM_LOGO_SVG = """
-<svg width="220" height="220" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#d9edf8"/>
-      <stop offset="100%" stop-color="#8ab7d8"/>
-    </linearGradient>
-    <linearGradient id="sea" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#0d3e62"/>
-      <stop offset="100%" stop-color="#1a5e85"/>
-    </linearGradient>
-    <radialGradient id="sun" cx="50%" cy="50%" r="55%">
-      <stop offset="0%" stop-color="#fff5be"/>
-      <stop offset="100%" stop-color="#f0b90d"/>
-    </radialGradient>
-  </defs>
-  <circle cx="110" cy="110" r="98" fill="url(#bg)" stroke="#1d4f73" stroke-width="7"/>
-  <circle cx="110" cy="110" r="90" fill="none" stroke="#d8b14f" stroke-width="6" stroke-dasharray="2 10"/>
-  <g fill="#f7d767" opacity="0.9">
-    <path d="M110 15 L116 52 L110 70 L104 52 Z"/>
-    <path d="M110 205 L116 168 L110 150 L104 168 Z"/>
-    <path d="M15 110 L52 116 L70 110 L52 104 Z"/>
-    <path d="M205 110 L168 116 L150 110 L168 104 Z"/>
-    <path d="M41 41 L64 64 L78 52 L56 38 Z"/>
-    <path d="M179 41 L156 64 L142 52 L164 38 Z"/>
-    <path d="M41 179 L64 156 L78 168 L56 182 Z"/>
-    <path d="M179 179 L156 156 L142 168 L164 182 Z"/>
-  </g>
-  <circle cx="110" cy="110" r="62" fill="url(#sun)" opacity="0.9"/>
-  <path d="M70 118 C95 84, 125 84, 150 118 C163 132, 165 151, 151 172 C131 195, 89 195, 71 172 C58 156, 58 134, 70 118 Z" fill="#f6f7f8"/>
-  <path d="M84 108 C96 90, 122 90, 136 108 C144 118, 142 129, 134 140 C128 148, 120 151, 110 151 C95 151, 86 145, 80 135 C74 126, 76 118, 84 108 Z" fill="#ffffff"/>
-  <path d="M90 128 C75 134, 64 144, 61 157 C74 167, 92 170, 110 167 C101 156, 96 144, 90 128 Z" fill="#f8f9fb"/>
-  <path d="M131 128 C146 134, 157 144, 160 157 C147 167, 129 170, 110 167 C119 156, 124 144, 131 128 Z" fill="#f8f9fb"/>
-  <path d="M80 92 C95 72, 126 70, 145 90 C136 102, 126 108, 110 108 C96 108, 87 102, 80 92 Z" fill="#dfe9f2"/>
-  <path d="M28 150 C44 127, 62 116, 82 112 C70 149, 63 170, 41 179 C35 174, 30 162, 28 150 Z" fill="#f4f9ff" opacity="0.28"/>
-  <path d="M192 150 C176 127, 158 116, 138 112 C150 149, 157 170, 179 179 C185 174, 190 162, 192 150 Z" fill="#f4f9ff" opacity="0.28"/>
-  <path d="M0 158 C32 139, 76 136, 110 146 C148 158, 178 157, 220 148 L220 220 L0 220 Z" fill="url(#sea)"/> 
-  <path d="M12 162 C38 146, 73 142, 104 153 C128 161, 157 160, 198 149 C196 169, 188 179, 180 186 C160 201, 137 203, 110 197 C86 192, 58 190, 36 183 C24 178, 17 171, 12 162 Z" fill="#ffffff" opacity="0.7"/>
-  <path d="M58 168 C74 160, 90 158, 110 163 C130 158, 147 160, 163 168 C149 180, 132 188, 110 189 C89 188, 71 181, 58 168 Z" fill="#f4f6f9" opacity="0.75"/>
-  <path d="M81 177 C92 170, 102 168, 110 168 C118 168, 128 170, 139 177 C129 187, 120 191, 110 192 C101 191, 91 187, 81 177 Z" fill="#d8ebff" opacity="0.6"/>
-  <g fill="#c42d1c" font-family="Georgia, serif" font-size="18" font-weight="700" text-anchor="middle">
-    <text x="110" y="202">RKM</text>
-  </g>
-</svg>
-"""
-RKM_LOGO_DATA_URI = (
-    "data:image/svg+xml;base64," +
-    base64.b64encode(RKM_LOGO_SVG.encode("utf-8")).decode("utf-8")
+RKM_LOGO_FILE = (
+    BASE_DIR
+    / ".venv"
+    / "Lib"
+    / "site-packages"
+    / "asstes"
+    / "logo.png"
+)
+RKM_LOGO_URL = (
+    "file:///"
+    + str(RKM_LOGO_FILE).replace("\\", "/")
 )
 
 
@@ -4130,8 +4092,8 @@ gradio-app {
 
 .hero {
     padding: 28px 24px;
-    border-radius: 22px;
-    margin-bottom: 18px;
+    border-radius: 18px;
+    margin: 0 12px 18px 12px;
     background: linear-gradient(
         135deg,
         #17365d,
@@ -4144,15 +4106,15 @@ gradio-app {
         0,
         0.12
     );
+    text-align: center;
 }
 
 .hero-inner {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 20px;
+    gap: 16px;
     flex-wrap: wrap;
-    text-align: center;
 }
 
 .hero-text {
@@ -4163,29 +4125,32 @@ gradio-app {
 }
 
 .hero-logo {
-    width: 100px;
-    height: 100px;
-    border-radius: 50%;
+    width: 96px !important;
+    height: 96px !important;
     object-fit: contain;
     display: block;
-    box-shadow: 0 12px 25px rgba(0, 0, 0, 0.18);
+    border-radius: 50%;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18);
     background: rgba(255, 255, 255, 0.12);
-    padding: 8px;
+    padding: 6px;
 }
 
 .hero h1 {
-    font-size: 42px !important;
-    margin: 0 0 10px 0;
+    font-size: 52px !important;
+    margin: 0 0 14px 0;
     font-weight: 800 !important;
-    line-height: 1.15 !important;
-    letter-spacing: 0.02em;
+    line-height: 1.08 !important;
+    letter-spacing: 0.015em;
+    color: rgba(36, 40, 45, 0.96) !important;
+    text-shadow: none !important;
 }
 
 .hero p {
-    font-size: 19px !important;
+    font-size: 24px !important;
     line-height: 1.5 !important;
     opacity: 0.95;
-    margin: 4px 0;
+    margin: 6px 0;
+    color: rgba(36, 40, 45, 0.96) !important;
 }
 
 /* ============================================================
@@ -4516,7 +4481,7 @@ with gr.Blocks(
         f"""
         <div class="hero">
             <div class="hero-inner">
-                <img class="hero-logo" src="{RKM_LOGO_DATA_URI}" alt="RKM logo" />
+                <img class="hero-logo" src="{RKM_LOGO_URL}" alt="RKM logo" />
                 <div class="hero-text">
                     <h1>RKM Duty Roster Generator</h1>
                     <p>
