@@ -58,25 +58,27 @@ OUTPUT_FILE = (
     / "duty_roster.xlsx"
 )
 
-RKM_LOGO_FILE = (
+SOURCE_LOGO_FILE = (
     BASE_DIR
     / ".venv"
     / "Lib"
     / "site-packages"
-    / "asstes"
+    / "assets"
+    / "logo.png"
+)
+
+RKM_LOGO_FILE = (
+    BASE_DIR
+    / "public"
     / "logo.png"
 )
 
 
-def get_logo_data_uri():
-    if not RKM_LOGO_FILE.exists():
-        return ""
-    try:
-        with open(RKM_LOGO_FILE, "rb") as img_file:
-            encoded = base64.b64encode(img_file.read()).decode("utf-8")
-        return f"data:image/png;base64,{encoded}"
-    except Exception:
-        return ""
+def ensure_logo_asset():
+    if SOURCE_LOGO_FILE.exists() and not RKM_LOGO_FILE.exists():
+        RKM_LOGO_FILE.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(SOURCE_LOGO_FILE, RKM_LOGO_FILE)
+    return str(RKM_LOGO_FILE) if RKM_LOGO_FILE.exists() else ""
 
 
 # ============================================================
@@ -4132,15 +4134,25 @@ gradio-app {
     justify-content: center;
 }
 
-.hero-logo {
+#hero-logo {
     width: 96px !important;
     height: 96px !important;
-    object-fit: contain;
-    display: block;
-    border-radius: 50%;
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18);
-    background: rgba(255, 255, 255, 0.12);
-    padding: 6px;
+    min-width: 96px !important;
+    min-height: 96px !important;
+    border-radius: 50% !important;
+    object-fit: contain !important;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18) !important;
+    background: rgba(255, 255, 255, 0.12) !important;
+    padding: 6px !important;
+    display: block !important;
+    margin: 0 auto !important;
+}
+
+#hero-logo img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    border-radius: 50% !important;
 }
 
 .hero h1 {
@@ -4485,26 +4497,37 @@ with gr.Blocks(
     # HERO
     # ========================================================
 
-    logo_data_uri = get_logo_data_uri()
+    logo_path = ensure_logo_asset()
 
-    gr.HTML(
-        f"""
-        <div class="hero">
-            <div class="hero-inner">
-                {f'<img class="hero-logo" src="{logo_data_uri}" alt="RKM logo" />' if logo_data_uri else '<div class="hero-logo-placeholder">🛡️</div>'}
-                <div class="hero-text">
-                    <h1>RKM Duty Roster Generator</h1>
-                    <p>
-                        Automated • Fair • Leave-Aware • Professionally Formatted
-                    </p>
-                    <p>
-                        Step 7.6 — Staff & Department Management
-                    </p>
+    with gr.Row():
+        if logo_path:
+            gr.HTML(
+                f"""
+                <div id="hero-logo-wrap">
+                    <img id="hero-logo" src="/logo.png" alt="RKM logo" />
+                </div>
+                """
+            )
+        else:
+            gr.HTML('<div class="hero-logo-placeholder">🛡️</div>')
+
+        gr.HTML(
+            """
+            <div class="hero">
+                <div class="hero-inner">
+                    <div class="hero-text">
+                        <h1>RKM Duty Roster Generator</h1>
+                        <p>
+                            Automated • Fair • Leave-Aware • Professionally Formatted
+                        </p>
+                        <p>
+                            Step 7.6 — Staff & Department Management
+                        </p>
+                    </div>
                 </div>
             </div>
-        </div>
-        """
-    )
+            """
+        )
 
     # ========================================================
     # FILE STATUS
