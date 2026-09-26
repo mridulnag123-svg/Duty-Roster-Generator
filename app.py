@@ -2544,6 +2544,16 @@ End Sub'''
     except Exception as db_err:
         print("Failed to save data to MongoDB:", db_err)
 
+    # Save Roster Records to MongoDB Cloud Database
+    try:
+        records_to_insert = roster_df.to_dict(orient="records")
+        if records_to_insert:
+            roster_collection.delete_many({}) # Clear old records
+            roster_collection.insert_many(records_to_insert)
+            print("Roster data successfully saved to MongoDB Atlas!")
+    except Exception as db_err:
+        print("Failed to save data to MongoDB:", db_err)
+
 
     # ========================================================
     # FORMAT EXCEL
@@ -3018,4 +3028,8 @@ End Sub'''
     print("Output file:", output_file)
     print("Total assignments:", len(roster_df))
 
+<<<<<<< HEAD
     return output_file
+=======
+    return output_file
+>>>>>>> 59f80a7607990e89c63b7bb0bd6491097089dc9c
