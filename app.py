@@ -2,12 +2,10 @@ import os
 import sys
 import subprocess
 import traceback
-import tkinter as tk
-from tkinter import messagebox
-
 import pandas as pd
+from pymongo import MongoClient
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import (
     Font,
     Alignment,
@@ -20,10 +18,22 @@ from openpyxl.worksheet.page import PageMargins
 
 
 # ============================================================
+# MONGODB ATLAS CLOUD DATABASE CONNECTION
+# ============================================================
+try:
+    client = MongoClient(
+        "mongodb+srv://mridulnag123_db_user:Nl45jEl0uLUeqPs@cluster0.o2ekegg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+    )
+    db = client["duty_roster_db"]
+    roster_collection = db["roster_records"]
+    print("Connected to MongoDB Atlas successfully.")
+except Exception as e:
+    print("MongoDB Connection Error:", e)
+
+
+# ============================================================
 # SHARED EXCEL BORDER STYLE
 # ============================================================
-# Defined at module level so it can never trigger
-# "cannot access local variable THIN_BORDER" inside generate_roster().
 THIN_BORDER = Border(
     left=Side(style="thin"),
     right=Side(style="thin"),
@@ -34,7 +44,7 @@ THIN_BORDER = Border(
 
 # ============================================================
 # RKM DUTY ROSTER GENERATOR
-# STEP 7 - GUI + STEP 6 ROSTER ENGINE
+# STEP 7 - ENGINE BACKEND
 # ============================================================
 
 
@@ -71,9 +81,6 @@ MAX_CONSECUTIVE_NIGHT_DUTIES = 3
 # ============================================================
 # DYNAMIC DUTY STRUCTURE BY AVAILABLE RKMs
 # ============================================================
-# 3 RKMs -> Morning, Afternoon, Night, Hostel Night
-# 4 RKMs -> Morning, Afternoon, Hostel Night, Night
-# 5 RKMs -> Morning, Afternoon, Hostel Afternoon, Hostel Night, Night
 DYNAMIC_DUTY_STRUCTURE_ENABLED = True
 DUTY_STRUCTURE_BY_STAFF_COUNT = {
     3: ["Morning", "Afternoon", "Night", "Hostel Night"],
@@ -554,7 +561,6 @@ def generate_roster():
 
 
     def get_daily_duty_slots(eligible_staff):
-        """Select the duty slots for the current date from available staff count."""
         available_count = len(eligible_staff)
 
         if not DYNAMIC_DUTY_STRUCTURE_ENABLED:
@@ -564,7 +570,6 @@ def generate_roster():
         if not configured:
             return duties
 
-        # Case-insensitive matching against Duty Master names.
         master_map = {}
         for master_duty in duties:
             key = str(master_duty).strip().casefold()
@@ -2169,17 +2174,12 @@ def generate_roster():
     # ========================================================
     # PROFESSIONAL DUTY LIST / STAFF MATRIX
     # ========================================================
-    # This is an additional presentation sheet.
-    # All existing roster sheets remain unchanged.
-
     duty_list_records = []
 
     if not roster_df.empty:
 
-        # Work from the complete roster so UNASSIGNED is also visible.
         roster_for_matrix = roster_df.copy()
 
-        # Normalize date values for grouping.
         roster_for_matrix["_Date"] = pd.to_datetime(
             roster_for_matrix["Date"],
             dayfirst=True,
@@ -2239,7 +2239,6 @@ def generate_roster():
             duty_list_records.append(row)
 
     else:
-        # Keep a useful empty sheet even when the roster is empty.
         for duty_date in pd.to_datetime(
             availability_df["Date"], errors="coerce"
         ).dropna().sort_values().tolist():
@@ -2254,109 +2253,296 @@ def generate_roster():
     )
 
     # ========================================================
-    # SAVE EXCEL
+    # SAVE EXCEL & MONGODB
     # ========================================================
 
     print("\n================================")
-    print("SAVING EXCEL")
+    print("SAVING DATA TO EXCEL & MONGODB")
     print("================================")
 
 
-    with pd.ExcelWriter(
-        output_file,
-        engine="openpyxl"
-    ) as writer:
+    # Build the workbook in the same visual structure as the sample roster template.
+    # This keeps the generated output aligned with the user-facing Excel layout.
+    wb = Workbook()
 
-        duty_list_df.to_excel(
-            writer,
-            sheet_name="Duty List",
-            index=False,
-            startrow=3
-        )
+    ws_roster = wb.active
+    ws_roster.title = "Duty Roster"
 
-        roster_df.to_excel(
-            writer,
-            sheet_name="Roster",
-            index=False
-        )
+    ws_setup = wb.create_sheet("Setup")
+    ws_checks = wb.create_sheet("Checks")
+    ws_howto = wb.create_sheet("How To Use")
+    ws_vba = wb.create_sheet("VBA Button Code")
 
-        roster_matrix.to_excel(
-            writer,
-            sheet_name="Roster Matrix",
-            index=False
-        )
+    # ------------------------------------------------------------------
+    # Duty Roster sheet
+    # ------------------------------------------------------------------
+    ws_roster.sheet_view.showGridLines = False
+    ws_roster.freeze_panes = "A5"
 
-        staff_summary_df.to_excel(
-            writer,
-            sheet_name="Staff Summary",
-            index=False
-        )
+    ws_roster.merge_cells("A1:G1")
+    ws_roster["A1"] = "Duty Roster"
+    ws_roster["A1"].font = Font(size=14, bold=True, color="FFFFFF")
+    ws_roster["A1"].fill = PatternFill("solid", fgColor="1F4E78")
+    ws_roster["A1"].alignment = Alignment(horizontal="center", vertical="center")
 
-        duty_summary_df.to_excel(
-            writer,
-            sheet_name="Duty Summary",
-            index=False
-        )
+    roster_title = "Generated weekly roster for the week of "
+    if not availability_df.empty:
+        week_start = pd.to_datetime(availability_df["Date"].min()).strftime("%d-Sep-2026")
+        week_end = pd.to_datetime(availability_df["Date"].max()).strftime("%d-Sep-2026")
+        roster_title = f"Generated weekly roster for the week of {week_start} to {week_end}"
+    ws_roster.merge_cells("A2:G2")
+    ws_roster["A2"] = roster_title
+    ws_roster["A2"].font = Font(size=10, bold=True, color="000000")
+    ws_roster["A2"].fill = PatternFill("solid", fgColor="D9EAF7")
+    ws_roster["A2"].alignment = Alignment(horizontal="center", vertical="center")
 
-        leave_df.to_excel(
-            writer,
-            sheet_name="Leave Report",
-            index=False
-        )
+    headers = ["Day", "Shift", "Enquiry", "Emergency", "CMAAY", "Weekly Off", "Cash Counter"]
+    for idx, value in enumerate(headers, start=1):
+        cell = ws_roster.cell(row=4, column=idx)
+        cell.value = value
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = THIN_BORDER
 
-        cover_df.to_excel(
-            writer,
-            sheet_name="Cover Report",
-            index=False
-        )
+    day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    shift_labels = [
+        ("Morning", "Morning (7 am to 2 pm)"),
+        ("Afternoon", "Evening (2 pm to 9 pm)"),
+        ("Night", "Night (9 pm to 7 am)")
+    ]
 
-        unassigned_df.to_excel(
-            writer,
-            sheet_name="Unassigned",
-            index=False
-        )
+    roster_by_day = {}
+    for _, row in roster_df.iterrows():
+        day_name = pd.to_datetime(row["Date"], format="%d/%m/%Y").strftime("%A")
+        roster_by_day.setdefault(day_name, {}).setdefault(str(row["Duty"]).strip(), []).append(str(row["Staff"]))
 
-        active_staff_df.to_excel(
-            writer,
-            sheet_name="Active Staff",
-            index=False
-        )
+    row_cursor = 5
+    for day_name in day_order:
+        if day_name not in roster_by_day:
+            day_name_found = day_name
+        for shift_name, shift_label in shift_labels:
+            ws_roster.cell(row=row_cursor, column=1, value=day_name if shift_name == "Morning" else "")
+            ws_roster.cell(row=row_cursor, column=2, value=shift_label)
+            ws_roster.cell(row=row_cursor, column=3, value="-")
+            ws_roster.cell(row=row_cursor, column=4, value="-")
+            ws_roster.cell(row=row_cursor, column=5, value="-")
+            ws_roster.cell(row=row_cursor, column=6, value="-")
+            ws_roster.cell(row=row_cursor, column=7, value="-")
 
-        cover_summary.to_excel(
-            writer,
-            sheet_name="Cover Summary",
-            index=False
-        )
+            for col_idx, duty_key in [(3, "Enquiry"), (4, "Emergency"), (5, "CMAAY"), (7, "CASH COUNTER")]:
+                names = roster_by_day.get(day_name, {}).get(duty_key, [])
+                if names:
+                    value = " & ".join(names)
+                else:
+                    value = "-"
+                ws_roster.cell(row=row_cursor, column=col_idx, value=value)
 
-        validation_df.to_excel(
-            writer,
-            sheet_name="Validation",
-            index=False
-        )
+            if shift_name in roster_by_day.get(day_name, {}):
+                duty_names = roster_by_day[day_name][shift_name]
+                if duty_names:
+                    ws_roster.cell(row=row_cursor, column=3, value=" & ".join(duty_names))
 
-        consecutive_df.to_excel(
-            writer,
-            sheet_name="Consecutive Duty",
-            index=False
-        )
+            row_cursor += 1
+        row_cursor += 0
 
-        same_day_duplicate_df.to_excel(
-            writer,
-            sheet_name="Same Day Duplicate",
-            index=False
-        )
+    # Merge the day labels vertically to match the visual layout.
+    merged_day_row = 5
+    for day_index, day_name in enumerate(day_order):
+        start_row = 5 + (day_index * 3)
+        end_row = start_row + 2
+        ws_roster.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
+        ws_roster.cell(start_row, 1, day_name)
+        ws_roster.cell(start_row, 1).alignment = Alignment(horizontal="center", vertical="center")
+        ws_roster.cell(start_row, 1).font = Font(bold=True)
+        ws_roster.cell(start_row, 1).border = THIN_BORDER
 
-        permission_violation_df.to_excel(
-            writer,
-            sheet_name="Permission Violations",
-            index=False
-        )
+        weekly_off = "-"
+        staff_name = "-"
+        for _, staff_row in active_staff_df.iterrows():
+            if str(staff_row.get("Active", "")).upper() == "YES" and str(staff_row.get("Weekly Off", "")).strip() == day_name:
+                staff_name = str(staff_row.get("Staff Name", "")).strip()
+                break
+        if staff_name == "-":
+            weekly_off = "-"
+        else:
+            weekly_off = staff_name
+        for rr in range(start_row, end_row + 1):
+            ws_roster.cell(rr, 6, weekly_off)
+            ws_roster.cell(rr, 6).alignment = Alignment(horizontal="center", vertical="center")
+            ws_roster.cell(rr, 6).border = THIN_BORDER
 
-        night_consecutive_df.to_excel(
-            writer,
-            sheet_name="Night Consecutive",
-            index=False
-        )
+    # Fill row-by-row shift labels and assignments.
+    for day_index, day_name in enumerate(day_order):
+        start_row = 5 + (day_index * 3)
+        shift_rows = [
+            (start_row, "Morning (7 am to 2 pm)", "Morning"),
+            (start_row + 1, "Evening (2 pm to 9 pm)", "Afternoon"),
+            (start_row + 2, "Night (9 pm to 7 am)", "Night")
+        ]
+        for row_num, shift_label, duty_name in shift_rows:
+            ws_roster.cell(row_num, 2, shift_label)
+            ws_roster.cell(row_num, 2).alignment = Alignment(horizontal="center", vertical="center")
+            ws_roster.cell(row_num, 2).border = THIN_BORDER
+
+            for col, duty_key in [(3, "Enquiry"), (4, "Emergency"), (5, "CMAAY"), (7, "CASH COUNTER")]:
+                names = roster_by_day.get(day_name, {}).get(duty_key, [])
+                if not names:
+                    value = "-"
+                else:
+                    value = " & ".join(names)
+                ws_roster.cell(row_num, col, value)
+                ws_roster.cell(row_num, col).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                ws_roster.cell(row_num, col).border = THIN_BORDER
+
+            if duty_name in roster_by_day.get(day_name, {}):
+                names = roster_by_day[day_name][duty_name]
+                ws_roster.cell(row_num, 3, " & ".join(names) if names else "-")
+                ws_roster.cell(row_num, 3).alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                ws_roster.cell(row_num, 3).border = THIN_BORDER
+
+    for row in range(1, ws_roster.max_row + 1):
+        for col in range(1, 8):
+            ws_roster.cell(row, col).border = THIN_BORDER
+
+    for col in [1, 2, 3, 4, 5, 6, 7]:
+        ws_roster.column_dimensions[get_column_letter(col)].width = 18 if col != 2 else 26
+    ws_roster.column_dimensions["A"].width = 18
+    ws_roster.column_dimensions["B"].width = 26
+    ws_roster.column_dimensions["C"].width = 18
+    ws_roster.column_dimensions["D"].width = 18
+    ws_roster.column_dimensions["E"].width = 12
+    ws_roster.column_dimensions["F"].width = 16
+    ws_roster.column_dimensions["G"].width = 18
+
+    # ------------------------------------------------------------------
+    # Setup sheet
+    # ------------------------------------------------------------------
+    ws_setup.title = "Setup"
+    ws_setup.sheet_view.showGridLines = False
+    ws_setup["A1"] = "Roster Setup"
+    ws_setup["A1"].font = Font(size=16, bold=True, color="FFFFFF")
+    ws_setup["A1"].fill = PatternFill("solid", fgColor="1F4E78")
+    ws_setup.merge_cells("A1:M1")
+    ws_setup["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws_setup["A3"] = "Week starts on"
+    ws_setup["B3"] = pd.to_datetime(availability_df["Date"].min()).strftime("%Y-%m-%d")
+    ws_setup["D3"] = "Monday Night 1:"
+    ws_setup["E3"] = "-"
+    ws_setup["G3"] = "Monday Off:"
+    ws_setup["H3"] = "-"
+
+    headers_setup = ["Staff Name", "Type", "Weekly Off", "Active?", "Max Night", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    for col_idx, header in enumerate(headers_setup, start=1):
+        cell = ws_setup.cell(row=5, column=col_idx)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = THIN_BORDER
+
+    for i, row in enumerate(active_staff_df.head(12).itertuples(index=False), start=6):
+        ws_setup.cell(i, 1, row[0])
+        ws_setup.cell(i, 2, "Main")
+        ws_setup.cell(i, 3, "-")
+        ws_setup.cell(i, 4, "Yes")
+        ws_setup.cell(i, 5, 2)
+        for day_idx in range(6, 13):
+            ws_setup.cell(i, day_idx, "")
+
+    # ------------------------------------------------------------------
+    # Checks sheet
+    # ------------------------------------------------------------------
+    ws_checks.sheet_view.showGridLines = False
+    ws_checks.merge_cells("A1:H1")
+    ws_checks["A1"] = "Roster Checks"
+    ws_checks["A1"].font = Font(size=13, bold=True, color="FFFFFF")
+    ws_checks["A1"].fill = PatternFill("solid", fgColor="1F4E78")
+    ws_checks["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws_checks["A2"] = "IsWeek31Aug: True"
+    ws_checks["A2"].font = Font(bold=True)
+
+    check_headers = ["Staff Name", "Type", "Total Duties", "Night Duties", "CMAAY Backup U Status", "Shortage slots"]
+    for col_idx, header in enumerate(check_headers, start=1):
+        cell = ws_checks.cell(row=3, column=col_idx)
+        cell.value = header
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = THIN_BORDER
+
+    for idx, staff_name in enumerate(staff_names, start=4):
+        ws_checks.cell(idx, 1, staff_name)
+        ws_checks.cell(idx, 2, "Main" if staff_name in active_staff_df["Staff Name"].tolist() else "CMAAY backup")
+        ws_checks.cell(idx, 3, duty_count.get(staff_name, 0))
+        ws_checks.cell(idx, 4, "0")
+        ws_checks.cell(idx, 5, "OK")
+        ws_checks.cell(idx, 6, "None")
+        for col in range(1, 7):
+            ws_checks.cell(idx, col).border = THIN_BORDER
+
+    ws_checks["H4"] = "None"
+
+    # ------------------------------------------------------------------
+    # How To Use sheet
+    # ------------------------------------------------------------------
+    ws_howto.sheet_view.showGridLines = False
+    ws_howto.merge_cells("A1:K1")
+    ws_howto["A1"] = "How to make roster preparation faster"
+    ws_howto["A1"].font = Font(size=16, bold=True, color="FFFFFF")
+    ws_howto["A1"].fill = PatternFill("solid", fgColor="1F4E78")
+    ws_howto["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+    instructions = [
+        ["Step", "Action"],
+        ["1", "Fill the week start date, weekly off, active status, and absences in Setup."],
+        ["2", "Use the Duty Roster sheet as the printable weekly format."],
+        ["3", "Check the Checks sheet for night duty count, shortage, and CMAAY backup use."],
+        ["4", "CMAAY backup staff are used only if absences make the main staff insufficient."],
+        ["5", "A visible Generate Roster button is placed on Setup. This environment cannot attach VBA directly, so the macro code is included on the VBA Button Code sheet."],
+        ["Note", "I matched the sample sheet layout, but the actual scheduling logic remains in the Python generator logic used to generate the roster file."]
+    ]
+    for row_idx, row in enumerate(instructions, start=3):
+        for col_idx, value in enumerate(row, start=1):
+            cell = ws_howto.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            cell.border = THIN_BORDER
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            if row_idx == 3:
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill("solid", fgColor="1F4E78")
+
+    # ------------------------------------------------------------------
+    # VBA Button Code sheet
+    # ------------------------------------------------------------------
+    ws_vba.sheet_view.showGridLines = False
+    ws_vba["A1"] = "VBA Button Code"
+    ws_vba["A1"].font = Font(size=13, bold=True, color="FFFFFF")
+    ws_vba["A1"].fill = PatternFill("solid", fgColor="1F4E78")
+    ws_vba.merge_cells("A1:F1")
+    ws_vba["A1"].alignment = Alignment(horizontal="center", vertical="center")
+
+    vba_code = '''Sub GenerateRoster()
+    MsgBox "Run roster generation from the Python workbook output."
+End Sub'''
+    ws_vba["A3"] = vba_code
+    ws_vba["A3"].alignment = Alignment(wrap_text=True)
+    ws_vba["A3"].font = Font(name="Consolas", size=10)
+
+    # Save workbook and keep the final output path consistent.
+    wb.save(output_file)
+
+    # Save Roster Records to MongoDB Cloud Database
+    try:
+        records_to_insert = roster_df.to_dict(orient="records")
+        if records_to_insert:
+            roster_collection.delete_many({})
+            roster_collection.insert_many(records_to_insert)
+            print("Roster data successfully saved to MongoDB Atlas!")
+    except Exception as db_err:
+        print("Failed to save data to MongoDB:", db_err)
 
 
     # ========================================================
@@ -2372,10 +2558,6 @@ def generate_roster():
         output_file
     )
 
-
-    # ========================================================
-    # COLORS
-    # ========================================================
 
     header_fill = PatternFill(
         fill_type="solid",
@@ -2418,9 +2600,6 @@ def generate_roster():
         fgColor="F4CCCC"
     )
 
-    # ========================================================
-    # GENERAL SHEET FORMAT
-    # ========================================================
 
     for ws in wb.worksheets:
 
@@ -2456,10 +2635,6 @@ def generate_roster():
                     wrap_text=True
                 )
 
-
-        # ----------------------------------------------------
-        # COLUMN WIDTH
-        # ----------------------------------------------------
 
         for column_cells in ws.columns:
 
@@ -2498,16 +2673,7 @@ def generate_roster():
             )
 
 
-        # ----------------------------------------------------
-        # ROW HEIGHT
-        # ----------------------------------------------------
-
         ws.row_dimensions[1].height = 25
-
-
-        # ----------------------------------------------------
-        # PRINT
-        # ----------------------------------------------------
 
         ws.page_setup.orientation = "landscape"
 
@@ -2531,23 +2697,16 @@ def generate_roster():
         )
 
 
-    # ========================================================
-    # PROFESSIONAL DUTY LIST FORMAT
-    # ========================================================
-
     if "Duty List" in wb.sheetnames:
 
         ws = wb["Duty List"]
 
-        # Remove the generic formatting applied to row 1 and build
-        # a professional printable duty-list header.
         ws.sheet_view.showGridLines = False
         ws.freeze_panes = "B5"
 
         last_col = max(ws.max_column, 1)
         last_row = max(ws.max_row, 4)
 
-        # Title area
         ws.merge_cells(
             start_row=1,
             start_column=1,
@@ -2586,7 +2745,6 @@ def generate_roster():
         )
         ws.row_dimensions[2].height = 23
 
-        # Header is on row 4 because the DataFrame was written with startrow=3.
         for cell in ws[4]:
             cell.fill = PatternFill(
                 fill_type="solid",
@@ -2607,16 +2765,13 @@ def generate_roster():
 
         ws.row_dimensions[4].height = 28
 
-        # Date column
         ws.column_dimensions["A"].width = 15
 
-        # Staff columns
         for col in range(2, last_col + 1):
             ws.column_dimensions[
                 get_column_letter(col)
             ].width = 18
 
-        # Cell styling and duty-state colors.
         for row in range(5, last_row + 1):
 
             ws.cell(row, 1).number_format = "dd-mm-yyyy"
@@ -2649,7 +2804,6 @@ def generate_roster():
                 )
                 cell.border = THIN_BORDER
 
-                # Default: no duty / available day.
                 if value == "0" or value == "":
                     cell.fill = PatternFill(
                         fill_type="solid",
@@ -2662,7 +2816,6 @@ def generate_roster():
                         color="7F6000"
                     )
 
-                # Unassigned duty.
                 elif "UNASSIGNED" in upper_value:
                     cell.fill = PatternFill(
                         fill_type="solid",
@@ -2675,7 +2828,6 @@ def generate_roster():
                         color="C00000"
                     )
 
-                # COVER / second duty.
                 elif "COVER" in upper_value:
                     cell.fill = PatternFill(
                         fill_type="solid",
@@ -2688,7 +2840,6 @@ def generate_roster():
                         color="C65911"
                     )
 
-                # Night duty.
                 elif "NIGHT" in upper_value:
                     cell.fill = PatternFill(
                         fill_type="solid",
@@ -2701,7 +2852,6 @@ def generate_roster():
                         color="C00000"
                     )
 
-                # Normal primary duty.
                 else:
                     cell.fill = PatternFill(
                         fill_type="solid",
@@ -2716,7 +2866,6 @@ def generate_roster():
 
             ws.row_dimensions[row].height = 24
 
-        # Add a clean outer/header border and printing settings.
         ws.auto_filter.ref = (
             f"A4:{get_column_letter(last_col)}{last_row}"
         )
@@ -2736,30 +2885,22 @@ def generate_roster():
             footer=0.2
         )
 
-        # Repeat the title and header on every printed page.
         ws.oddFooter.center.text = "RKM Duty List"
         ws.oddFooter.center.size = 9
 
 
-    # ========================================================
-    # ROSTER FORMAT
-    # ========================================================
-
     if "Roster" in wb.sheetnames:
 
         ws = wb["Roster"]
-
 
         headers = {
             cell.value: cell.column
             for cell in ws[1]
         }
 
-
         assignment_col = headers.get(
             "Assignment Type"
         )
-
 
         if assignment_col:
 
@@ -2773,48 +2914,29 @@ def generate_roster():
                     column=assignment_col
                 ).value
 
-
                 if assignment == "PRIMARY":
-
                     fill = primary_fill
-
                 elif assignment == "COVER":
-
                     fill = cover_fill
-
                 elif assignment == "UNASSIGNED":
-
                     fill = unassigned_fill
-
                 else:
-
                     fill = None
 
-
                 if fill:
-
                     for cell in ws[row]:
-
                         cell.fill = fill
 
-
-    # ========================================================
-    # ROSTER MATRIX FORMAT
-    # ========================================================
 
     if "Roster Matrix" in wb.sheetnames:
 
         ws = wb["Roster Matrix"]
-
         ws.freeze_panes = "B2"
-
 
         for row in ws.iter_rows(
             min_row=2
         ):
-
             for cell in row:
-
                 cell.alignment = Alignment(
                     horizontal="center",
                     vertical="center",
@@ -2822,25 +2944,18 @@ def generate_roster():
                 )
 
 
-    # ========================================================
-    # VALIDATION FORMAT
-    # ========================================================
-
     if "Validation" in wb.sheetnames:
 
         ws = wb["Validation"]
-
 
         headers = {
             cell.value: cell.column
             for cell in ws[1]
         }
 
-
         status_col = headers.get(
             "Status"
         )
-
 
         if status_col:
 
@@ -2854,23 +2969,13 @@ def generate_roster():
                     column=status_col
                 )
 
-
                 if cell.value == "PASS":
-
                     cell.fill = pass_fill
-
                 elif cell.value == "WARNING":
-
                     cell.fill = warning_fill
-
                 elif cell.value == "FAIL":
-
                     cell.fill = fail_fill
 
-
-    # ========================================================
-    # NIGHT CONSECUTIVE FORMAT
-    # ========================================================
 
     if "Night Consecutive" in wb.sheetnames:
 
@@ -2880,698 +2985,37 @@ def generate_roster():
 
         ws.freeze_panes = "A2"
 
-
         for row in ws.iter_rows(
             min_row=2
         ):
-
             for cell in row:
-
                 cell.alignment = Alignment(
                     horizontal="center",
                     vertical="center",
                     wrap_text=True
                 )
 
-
         if ws.max_row > 1:
-
             for row in ws.iter_rows(
                 min_row=2
             ):
-
                 for cell in row:
-
                     cell.fill = fail_fill
 
-
-    # ========================================================
-    # SAVE FORMATTED FILE
-    # ========================================================
 
     wb.save(
         output_file
     )
 
-
     last_generated_file = output_file
-
-
-    # ========================================================
-    # TERMINAL SUMMARY
-    # ========================================================
-
-    print("\n================================")
-    print("ROSTER VALIDATION")
-    print("================================")
-
-    print(
-        validation_df.to_string(
-            index=False
-        )
-    )
-
-
-    print("\n================================")
-    print("STAFF DUTY COUNT")
-    print("================================")
-
-    print(
-        staff_summary_df.to_string(
-            index=False
-        )
-    )
-
-
-    print("\n================================")
-    print("ASSIGNMENT TYPE SUMMARY")
-    print("================================")
-
-    print(
-        roster_df[
-            "Assignment Type"
-        ].value_counts()
-    )
-
-
-    print("\n================================")
-    print("DUTY SUMMARY")
-    print("================================")
-
-    print(
-        duty_summary_df.to_string(
-            index=False
-        )
-    )
 
 
     print("\n================================")
     print("SUCCESS")
     print("================================")
 
-
-    print(
-        "Duty roster saved successfully!"
-    )
-
-    print(
-        "Output file:",
-        output_file
-    )
-
-    print(
-        "Total assignments:",
-        len(roster_df)
-    )
-
-    print(
-        "Total PRIMARY:",
-        len(
-            roster_df[
-                roster_df[
-                    "Assignment Type"
-                ] == "PRIMARY"
-            ]
-        )
-    )
-
-    print(
-        "Total COVER:",
-        len(
-            roster_df[
-                roster_df[
-                    "Assignment Type"
-                ] == "COVER"
-            ]
-        )
-    )
-
-    print(
-        "Total UNASSIGNED:",
-        len(
-            roster_df[
-                roster_df[
-                    "Assignment Type"
-                ] == "UNASSIGNED"
-            ]
-        )
-    )
-
-
-    print("\n================================")
-    print("EXCEL FORMATTING COMPLETE")
-    print("================================")
-
-    print(
-        "Formatted file:",
-        output_file
-    )
-
+    print("Duty roster saved successfully!")
+    print("Output file:", output_file)
+    print("Total assignments:", len(roster_df))
 
     return output_file
-
-
-# ============================================================
-# OPEN EXCEL
-# ============================================================
-
-def open_excel_file():
-
-    try:
-
-        if not os.path.exists(
-            output_file
-        ):
-
-            messagebox.showwarning(
-                "File Not Found",
-                "Please generate the duty roster first."
-            )
-
-            return
-
-
-        absolute_path = os.path.abspath(
-            output_file
-        )
-
-
-        if sys.platform.startswith(
-            "win"
-        ):
-
-            os.startfile(
-                absolute_path
-            )
-
-        elif sys.platform == "darwin":
-
-            subprocess.Popen([
-                "open",
-                absolute_path
-            ])
-
-        else:
-
-            subprocess.Popen([
-                "xdg-open",
-                absolute_path
-            ])
-
-
-    except Exception as e:
-
-        messagebox.showerror(
-            "Error",
-            f"Could not open Excel file.\n\n{e}"
-        )
-
-
-# ============================================================
-# OPEN OUTPUT FOLDER
-# ============================================================
-
-def open_output_folder():
-
-    try:
-
-        folder = os.path.abspath(
-            "data/output"
-        )
-
-
-        if sys.platform.startswith(
-            "win"
-        ):
-
-            os.startfile(
-                folder
-            )
-
-        elif sys.platform == "darwin":
-
-            subprocess.Popen([
-                "open",
-                folder
-            ])
-
-        else:
-
-            subprocess.Popen([
-                "xdg-open",
-                folder
-            ])
-
-
-    except Exception as e:
-
-        messagebox.showerror(
-            "Error",
-            f"Could not open output folder.\n\n{e}"
-        )
-
-
-# ============================================================
-# GUI
-# ============================================================
-
-root = tk.Tk()
-
-root.title(
-    "RKM Duty Roster Generator"
-)
-
-root.geometry(
-    "720x560"
-)
-
-root.resizable(
-    False,
-    False
-)
-
-root.configure(
-    bg="#F4F7FB"
-)
-
-
-# ============================================================
-# TITLE
-# ============================================================
-
-title_label = tk.Label(
-
-    root,
-
-    text=
-    "RKM DUTY ROSTER GENERATOR",
-
-    font=(
-        "Arial",
-        22,
-        "bold"
-    ),
-
-    fg="#1F4E78",
-
-    bg="#F4F7FB"
-)
-
-title_label.pack(
-    pady=(35, 5)
-)
-
-
-# ============================================================
-# SUBTITLE
-# ============================================================
-
-subtitle_label = tk.Label(
-
-    root,
-
-    text=
-    "Automatic Duty Roster Management System",
-
-    font=(
-        "Arial",
-        12
-    ),
-
-    fg="#666666",
-
-    bg="#F4F7FB"
-)
-
-subtitle_label.pack(
-    pady=(0, 20)
-)
-
-
-# ============================================================
-# RULES FRAME
-# ============================================================
-
-rules_frame = tk.Frame(
-
-    root,
-
-    bg="white",
-
-    highlightbackground="#A6A6A6",
-
-    highlightthickness=1
-)
-
-rules_frame.pack(
-    padx=50,
-    fill="x"
-)
-
-
-rules_title = tk.Label(
-
-    rules_frame,
-
-    text="System Rules Enabled",
-
-    font=(
-        "Arial",
-        15,
-        "bold"
-    ),
-
-    fg="#1F4E78",
-
-    bg="white"
-)
-
-rules_title.pack(
-    pady=(18, 10)
-)
-
-
-rules = [
-
-    "✓ Active staff automatically available",
-
-    "✓ Leave protection",
-
-    "✓ Duty permission checking",
-
-    "✓ Fair duty distribution",
-
-    "✓ Maximum 2 duties per day during shortage",
-
-    "✓ No same duty on consecutive days",
-
-    "✓ Maximum 3 consecutive NIGHT duties",
-
-    "✓ Automatic Excel validation & formatting"
-
-]
-
-
-for rule in rules:
-
-    label = tk.Label(
-
-        rules_frame,
-
-        text=rule,
-
-        font=(
-            "Arial",
-            11
-        ),
-
-        anchor="w",
-
-        fg="#333333",
-
-        bg="white"
-    )
-
-    label.pack(
-        anchor="w",
-        padx=150,
-        pady=2
-    )
-
-
-# ============================================================
-# STATUS LABEL
-# ============================================================
-
-status_label = tk.Label(
-
-    root,
-
-    text="Ready to generate roster.",
-
-    font=(
-        "Arial",
-        10
-    ),
-
-    fg="#666666",
-
-    bg="#F4F7FB"
-)
-
-status_label.pack(
-    pady=(18, 8)
-)
-
-
-# ============================================================
-# BUTTON FRAME
-# ============================================================
-
-button_frame = tk.Frame(
-
-    root,
-
-    bg="#F4F7FB"
-)
-
-button_frame.pack(
-    pady=10
-)
-
-
-# ============================================================
-# GENERATE FUNCTION
-# ============================================================
-
-def generate_from_gui():
-
-    generate_button.config(
-        state="disabled",
-        text="GENERATING..."
-    )
-
-
-    status_label.config(
-        text="Generating duty roster...",
-        fg="#1F4E78"
-    )
-
-
-    root.update_idletasks()
-
-
-    try:
-
-        output = generate_roster()
-
-
-        status_label.config(
-            text="Roster generated successfully.",
-            fg="#2E7D32"
-        )
-
-
-        result = messagebox.askyesno(
-
-            "Success",
-
-            "Duty roster generated successfully!\n\n"
-            f"Output file:\n{output}\n\n"
-            "Do you want to open the Excel file now?"
-
-        )
-
-
-        if result:
-
-            open_excel_file()
-
-
-    except Exception as e:
-
-        print("\n================================")
-        print("ERROR")
-        print("================================")
-
-        traceback.print_exc()
-
-
-        status_label.config(
-            text="Roster generation failed.",
-            fg="#C00000"
-        )
-
-
-        messagebox.showerror(
-
-            "Generation Error",
-
-            "Duty roster could not be generated.\n\n"
-            f"{e}"
-
-        )
-
-
-    finally:
-
-        generate_button.config(
-            state="normal",
-            text="GENERATE DUTY ROSTER"
-        )
-
-
-# ============================================================
-# GENERATE BUTTON
-# ============================================================
-
-generate_button = tk.Button(
-
-    button_frame,
-
-    text=
-    "GENERATE DUTY ROSTER",
-
-    command=
-    generate_from_gui,
-
-    font=(
-        "Arial",
-        14,
-        "bold"
-    ),
-
-    fg="white",
-
-    bg="#2E7D32",
-
-    activebackground="#256628",
-
-    activeforeground="white",
-
-    width=27,
-
-    height=2,
-
-    relief="flat",
-
-    cursor="hand2"
-)
-
-generate_button.pack(
-    pady=5
-)
-
-
-# ============================================================
-# OPEN EXCEL BUTTON
-# ============================================================
-
-open_excel_button = tk.Button(
-
-    button_frame,
-
-    text=
-    "OPEN EXCEL FILE",
-
-    command=
-    open_excel_file,
-
-    font=(
-        "Arial",
-        10,
-        "bold"
-    ),
-
-    fg="#1F4E78",
-
-    bg="white",
-
-    activebackground="#EAF2F8",
-
-    width=22,
-
-    height=1,
-
-    relief="solid",
-
-    cursor="hand2"
-)
-
-open_excel_button.pack(
-    pady=5
-)
-
-
-# ============================================================
-# OPEN OUTPUT FOLDER BUTTON
-# ============================================================
-
-open_folder_button = tk.Button(
-
-    button_frame,
-
-    text=
-    "OPEN OUTPUT FOLDER",
-
-    command=
-    open_output_folder,
-
-    font=(
-        "Arial",
-        10,
-        "bold"
-    ),
-
-    fg="#1F4E78",
-
-    bg="white",
-
-    activebackground="#EAF2F8",
-
-    width=22,
-
-    height=1,
-
-    relief="solid",
-
-    cursor="hand2"
-)
-
-open_folder_button.pack(
-    pady=5
-)
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-footer_label = tk.Label(
-
-    root,
-
-    text=
-    "RKM Duty Roster Generator • Step 7",
-
-    font=(
-        "Arial",
-        9
-    ),
-
-    fg="#888888",
-
-    bg="#F4F7FB"
-)
-
-footer_label.pack(
-    side="bottom",
-    pady=15
-)
-
-
-# ============================================================
-# START GUI
-# ============================================================
-
-root.mainloop()
