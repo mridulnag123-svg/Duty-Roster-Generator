@@ -2106,7 +2106,7 @@ def reset_filters():
 
 
 # ============================================================
-# EXPORT FILTERED EXCEL
+# EXPORT FILTERED EXCEL (PROFESSIONAL FORMATTING)
 # ============================================================
 
 def export_filtered_excel(
@@ -2266,7 +2266,7 @@ def export_filtered_excel(
             )
 
         # ----------------------------------------------------
-        # WRITE EXCEL
+        # WRITE EXCEL WITH PROFESSIONAL FORMATTING
         # ----------------------------------------------------
 
         with pd.ExcelWriter(
@@ -2286,64 +2286,85 @@ def export_filtered_excel(
                 ]
             )
 
-            # Freeze header
-            worksheet.freeze_panes = "A2"
+            from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+            from openpyxl.utils import get_column_letter
+            from openpyxl.worksheet.page import PageMargins
 
-            # Auto filter
-            worksheet.auto_filter.ref = (
-                worksheet.dimensions
+            header_fill = PatternFill(fill_type="solid", fgColor="1F4E78")
+            header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+            thin_border = Border(
+                left=Side(style="thin", color="D9D9D9"),
+                right=Side(style="thin", color="D9D9D9"),
+                top=Side(style="thin", color="D9D9D9"),
+                bottom=Side(style="thin", color="D9D9D9")
             )
 
-            # Column width
-            for column_cells in (
-                worksheet.columns
-            ):
+            primary_fill = PatternFill(fill_type="solid", fgColor="E2F0D9")
+            cover_fill = PatternFill(fill_type="solid", fgColor="FFF2CC")
+            unassigned_fill = PatternFill(fill_type="solid", fgColor="F4CCCC")
 
+            worksheet.sheet_view.showGridLines = False
+            worksheet.freeze_panes = "A2"
+            worksheet.auto_filter.ref = worksheet.dimensions
+
+            if worksheet.max_row >= 1:
+                worksheet.row_dimensions[1].height = 28
+                for cell in worksheet[1]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.border = thin_border
+
+            assignment_col_idx = None
+            for idx, col_name in enumerate(export_df.columns, start=1):
+                if col_name == "Assignment Type":
+                    assignment_col_idx = idx
+                    break
+
+            for row in range(2, worksheet.max_row + 1):
+                worksheet.row_dimensions[row].height = 22
+                
+                assign_type_val = ""
+                if assignment_col_idx:
+                    assign_type_val = str(worksheet.cell(row=row, column=assignment_col_idx).value or "").upper()
+
+                for col in range(1, worksheet.max_column + 1):
+                    cell = worksheet.cell(row=row, column=col)
+                    cell.border = thin_border
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                    cell.font = Font(name="Calibri", size=10)
+
+                    if assign_type_val == "PRIMARY":
+                        cell.fill = primary_fill
+                    elif assign_type_val == "COVER":
+                        cell.fill = cover_fill
+                    elif assign_type_val == "UNASSIGNED":
+                        cell.fill = unassigned_fill
+
+            for column_cells in worksheet.columns:
                 max_length = 0
-
-                column_letter = (
-                    column_cells[0]
-                    .column_letter
-                )
-
+                column_letter = column_cells[0].column_letter
                 for cell in column_cells:
-
                     try:
-
-                        cell_length = len(
-                            str(cell.value)
-                        )
-
-                        if (
-                            cell_length
-                            > max_length
-                        ):
-
-                            max_length = (
-                                cell_length
-                            )
-
+                        cell_length = len(str(cell.value or ""))
+                        if cell_length > max_length:
+                            max_length = cell_length
                     except Exception:
-
                         pass
+                worksheet.column_dimensions[column_letter].width = min(max(max_length + 4, 15), 45)
 
-                worksheet.column_dimensions[
-                    column_letter
-                ].width = min(
-                    max(
-                        max_length + 2,
-                        12
-                    ),
-                    40
-                )
+            worksheet.page_setup.orientation = worksheet.ORIENTATION_LANDSCAPE
+            worksheet.page_setup.paperSize = worksheet.PAPERSIZE_A4
+            worksheet.page_setup.fitToWidth = 1
+            worksheet.page_setup.fitToHeight = 0
+            worksheet.sheet_properties.pageSetUpPr.fitToPage = True
+            worksheet.page_margins = PageMargins(left=0.25, right=0.25, top=0.5, bottom=0.5)
 
         return (
             str(export_file),
 
-            "### 🟢 FILTERED EXCEL "
-            "EXPORTED SUCCESSFULLY\n\n"
-            f"Records exported: "
-            f"**{len(export_df)}**\n\n"
+            "### 🟢 FILTERED EXCEL EXPORTED SUCCESSFULLY (PROFESSIONAL FORMAT)\n\n"
+            f"Records exported: **{len(export_df)}**\n\n"
             f"File:\n`{export_file}`"
         )
 
