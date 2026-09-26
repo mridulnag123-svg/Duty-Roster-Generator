@@ -3028,8 +3028,4 @@ End Sub'''
     print("Output file:", output_file)
     print("Total assignments:", len(roster_df))
 
-<<<<<<< HEAD
     return output_file
-=======
-    return output_file
->>>>>>> 59f80a7607990e89c63b7bb0bd6491097089dc9c
